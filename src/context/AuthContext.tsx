@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { signUpUser, signInUser, logoutUser, subscribeToAuth } from '../services/firebase';
+import { signUpUser, signInUser, signInWithGoogle as fbSignInWithGoogle, logoutUser, subscribeToAuth } from '../services/firebase';
 import type { UserProfile } from '../services/firebase';
 
 interface AuthContextType {
@@ -7,6 +7,7 @@ interface AuthContextType {
   loading: boolean;
   signUp: (email: string, password: string, fullName: string, role: 'fan' | 'staff') => Promise<UserProfile>;
   signIn: (email: string, password: string) => Promise<UserProfile>;
+  signInWithGoogle: (preferredRole?: 'fan' | 'staff') => Promise<UserProfile>;
   logout: () => Promise<void>;
 }
 
@@ -46,6 +47,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const signInWithGoogle = async (preferredRole: 'fan' | 'staff' = 'fan') => {
+    setLoading(true);
+    try {
+      const profile = await fbSignInWithGoogle(preferredRole);
+      setUser(profile);
+      return profile;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const logout = async () => {
     setLoading(true);
     try {
@@ -59,7 +71,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signUp, signIn, logout }}>
+    <AuthContext.Provider value={{ user, loading, signUp, signIn, signInWithGoogle, logout }}>
       {children}
     </AuthContext.Provider>
   );
