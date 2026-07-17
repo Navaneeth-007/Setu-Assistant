@@ -1,0 +1,165 @@
+@import "tailwindcss";
+
+@theme {
+  --color-surface-dim: #081425;
+  --color-surface-bright: #2f3a4c;
+  --color-error: #ffb4ab;
+  --color-outline-variant: #46464d;
+  --color-on-surface: #d8e3fb;
+  --color-tertiary-fixed-dim: #ffb4ac;
+  --color-tertiary-container: #2f0001;
+  --color-on-tertiary-container: #f2282c;
+  --color-surface-container: #152031;
+  --color-surface: #081425;
+  --color-on-primary-container: #767c99;
+  --color-surface-container-high: #1f2a3c;
+  --color-on-primary-fixed: #141a32;
+  --color-surface-container-low: #111c2d;
+  --color-secondary-fixed: #dae2ff;
+  --color-inverse-surface: #d8e3fb;
+  --color-primary-fixed-dim: #bfc5e4;
+  --color-on-error: #690005;
+  --color-on-secondary-fixed: #001848;
+  --color-on-surface-variant: #c6c6ce;
+  --color-on-tertiary-fixed-variant: #93000e;
+  --color-on-tertiary-fixed: #410003;
+  --color-on-primary-fixed-variant: #3f465f;
+  --color-surface-container-highest: #2a3548;
+  --color-secondary-fixed-dim: #b2c5ff;
+  --color-secondary: #b2c5ff;
+  --color-error-container: #93000a;
+  --color-on-secondary: #002b73;
+  --color-primary: #bfc5e4;
+  --color-secondary-container: #0453cd;
+  --color-on-tertiary: #690007;
+  --color-surface-container-lowest: #040e1f;
+  --color-on-secondary-container: #c7d4ff;
+  --color-inverse-on-surface: #263143;
+  --color-outline: #909098;
+  --color-primary-container: #0a1128;
+  --color-on-secondary-fixed-variant: #0040a2;
+  --color-on-primary: #292f48;
+  --color-on-error-container: #ffdad6;
+  --color-surface-tint: #bfc5e4;
+  --color-tertiary: #ffb4ac;
+  --color-on-background: #d8e3fb;
+  --color-inverse-primary: #575d78;
+  --color-background: #081425;
+  --color-tertiary-fixed: #ffdad6;
+  --color-primary-fixed: #dce1ff;
+  --color-surface-variant: #2a3548;
+
+  --border-radius-DEFAULT: 0.125rem;
+  --border-radius-lg: 0.25rem;
+  --border-radius-xl: 0.5rem;
+  --border-radius-full: 0.75rem;
+
+  --spacing-unit: 4px;
+  --spacing-xl: 40px;
+  --spacing-lg: 24px;
+  --spacing-margin-desktop: 48px;
+  --spacing-gutter-ops: 8px;
+  --spacing-gutter-fan: 16px;
+  --spacing-sm: 8px;
+  --spacing-xs: 4px;
+  --spacing-margin-mobile: 20px;
+  --spacing-md: 16px;
+
+  --font-family-label-caps: Inter, sans-serif;
+  --font-family-data-mono: JetBrains Mono, monospace;
+  --font-family-display-lg: Inter, sans-serif;
+  --font-family-body-md: Inter, sans-serif;
+  --font-family-headline-lg-mobile: Inter, sans-serif;
+  --font-family-headline-lg: Inter, sans-serif;
+
+  --font-size-label-caps: 12px;
+  --font-size-data-mono: 14px;
+  --font-size-display-lg: 48px;
+  --font-size-body-md: 16px;
+  --font-size-headline-lg-mobile: 24px;
+  --font-size-headline-lg: 32px;
+}
+
+/* Custom Utilities from Stitch Code */
+.stadium-mesh {
+  background-image: radial-gradient(circle at 2px 2px, rgba(70, 70, 77, 0.15) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+.login-card-blur {
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(70, 70, 77, 0.3);
+}
+
+.ai-verified-glow {
+  box-shadow: 0 0 15px rgba(191, 197, 228, 0.1);
+}
+
+.ai-glow-border {
+  position: relative;
+}
+
+.ai-glow-border::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  background: linear-gradient(45deg, #bfc5e4, #0453cd);
+  z-index: -1;
+  border-radius: inherit;
+  opacity: 0.3;
+  filter: blur(8px);
+}
+
+.glass-panel {
+  background: rgba(21, 32, 49, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(144, 144, 152, 0.2);
+}
+
+.segmented-progress-item {
+  height: 8px;
+  width: 100%;
+  background: #1e293b;
+  border-radius: 2px;
+}
+
+.segmented-progress-item.active {
+  background: #bfc5e4;
+}
+
+.segmented-progress-item.warning {
+  background: #f2282c;
+}
+
+.ai-glow {
+  box-shadow: 0 0 20px rgba(178, 197, 255, 0.1);
+  border: 1px solid rgba(178, 197, 255, 0.3);
+  backdrop-filter: blur(12px);
+}
+
+.infrastructure-gradient {
+  background: radial-gradient(circle at 50% 50%, #152031 0%, #081425 100%);
+}
+
+.custom-active-nav {
+  border-left: 4px solid #bfc5e4;
+  background: rgba(191, 197, 228, 0.1);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #46464d;
+  border-radius: 10px;
+}
+
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  display: inline-block;
+  vertical-align: middle;
+}
