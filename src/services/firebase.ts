@@ -4,7 +4,9 @@ import {
   signInWithEmailAndPassword as fbSignIn, 
   createUserWithEmailAndPassword as fbCreateUser, 
   signOut as fbSignOut, 
-  onAuthStateChanged as fbAuthStateChanged
+  onAuthStateChanged as fbAuthStateChanged,
+  GoogleAuthProvider,
+  signInWithPopup
 } from 'firebase/auth';
 import type { User as FirebaseUser } from 'firebase/auth';
 import { 
@@ -217,6 +219,44 @@ export const signInUser = async (email: string, password: string): Promise<UserP
     const user = mockUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
     if (!user) {
       throw new Error("Invalid email or password.");
+    }
+    currentMockUser = user;
+    saveLocalData('setu_current_user', currentMockUser);
+    mockListeners.auth.forEach(cb => cb(currentMockUser));
+    return user;
+  }
+};
+
+export const signInWithGoogle = async (preferredRole: 'fan' | 'staff' = 'fan'): Promise<UserProfile> => {
+  if (isFirebaseConfigured && auth && db) {
+    const provider = new GoogleAuthProvider();
+    const cred = await signInWithPopup(auth, provider);
+    const userDocRef = doc(db, 'users', cred.user.uid);
+    const userDoc = await getDoc(userDocRef);
+    if (userDoc.exists()) {
+      return userDoc.data() as UserProfile;
+    } else {
+      const profile: UserProfile = {
+        uid: cred.user.uid,
+        email: cred.user.email || '',
+        fullName: cred.user.displayName || 'Google User',
+        role: preferredRole
+      };
+      await setDoc(userDocRef, profile);
+      return profile;
+    }
+  } else {
+    const email = `google_${preferredRole}@example.com`;
+    let user = mockUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
+    if (!user) {
+      user = {
+        uid: 'google_user_' + Math.random().toString(36).substr(2, 9),
+        email,
+        fullName: `Google ${preferredRole === 'fan' ? 'Fan' : 'Staff'}`,
+        role: preferredRole
+      };
+      mockUsers.push(user);
+      saveLocalData('setu_users', mockUsers);
     }
     currentMockUser = user;
     saveLocalData('setu_current_user', currentMockUser);
