@@ -179,11 +179,9 @@ export const signUpUser = async (email: string, password: string, fullName: stri
       fullName,
       role
     };
-    // Save profile to Firestore
     await setDoc(doc(db, 'users', cred.user.uid), profile);
     return profile;
   } else {
-    // Check if user already exists
     if (mockUsers.some(u => u.email.toLowerCase() === email.toLowerCase())) {
       throw new Error("Email already registered.");
     }
@@ -195,12 +193,8 @@ export const signUpUser = async (email: string, password: string, fullName: stri
     };
     mockUsers.push(profile);
     saveLocalData('setu_users', mockUsers);
-    
-    // Set current user
     currentMockUser = profile;
     saveLocalData('setu_current_user', currentMockUser);
-    
-    // Notify local auth listeners
     mockListeners.auth.forEach(cb => cb(currentMockUser));
     return profile;
   }
@@ -215,7 +209,6 @@ export const signInUser = async (email: string, password: string): Promise<UserP
     }
     throw new Error("User profile not found in database.");
   } else {
-    // Simple password check (anything works for demo, but we validate user email)
     const user = mockUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
     if (!user) {
       throw new Error("Invalid email or password.");
@@ -229,19 +222,20 @@ export const signInUser = async (email: string, password: string): Promise<UserP
 
 export const signInWithGoogle = async (preferredRole: 'fan' | 'staff' = 'fan'): Promise<UserProfile> => {
   if (isFirebaseConfigured && auth && db) {
+    localStorage.setItem('preferred_google_role', preferredRole);
     const provider = new GoogleAuthProvider();
     const cred = await signInWithPopup(auth, provider);
+    const profile: UserProfile = {
+      uid: cred.user.uid,
+      email: cred.user.email || '',
+      fullName: cred.user.displayName || 'Google User',
+      role: preferredRole
+    };
     const userDocRef = doc(db, 'users', cred.user.uid);
     const userDoc = await getDoc(userDocRef);
     if (userDoc.exists()) {
       return userDoc.data() as UserProfile;
     } else {
-      const profile: UserProfile = {
-        uid: cred.user.uid,
-        email: cred.user.email || '',
-        fullName: cred.user.displayName || 'Google User',
-        role: preferredRole
-      };
       await setDoc(userDocRef, profile);
       return profile;
     }
@@ -279,14 +273,30 @@ export const subscribeToAuth = (callback: (user: UserProfile | null) => void) =>
   if (isFirebaseConfigured && auth && db) {
     return fbAuthStateChanged(auth, async (fbUser: FirebaseUser | null) => {
       if (fbUser) {
-        try {
-          const userDoc = await getDoc(doc(db, 'users', fbUser.uid));
-          if (userDoc.exists()) {
-            callback(userDoc.data() as UserProfile);
-            return;
-          }
-        } catch (e) {
-          console.error("Error loading user profile on auth state change", e);
+        const userDocRef = doc(db, 'users', fbUser.uid);
+        let userDoc = await getDoc(userDocRef);
+        
+        if (!userDoc.exists()) {
+          // Wait for 1.2 seconds to allow signInWithGoogle to complete its write operation
+          await new Promise(resolve => setTimeout(resolve, 1200));
+          userDoc = await getDoc(userDocRef);
+        }
+        
+        if (!userDoc.exists()) {
+          const role = (localStorage.getItem('preferred_google_role') as 'fan' | 'staff') || 'fan';
+          const profile: UserProfile = {
+            uid: fbUser.uid,
+            email: fbUser.email || '',
+            fullName: fbUser.displayName || 'Google User',
+            role
+          };
+          await setDoc(userDocRef, profile);
+          userDoc = await getDoc(userDocRef);
+        }
+        
+        if (userDoc.exists()) {
+          callback(userDoc.data() as UserProfile);
+          return;
         }
       }
       callback(null);
@@ -396,7 +406,6 @@ export const subscribeToGates = (callback: (gates: GateStatus[]) => void) => {
       snapshot.forEach((doc) => {
         gatesList.push(doc.data() as GateStatus);
       });
-      // Sort to make sure they are in consistent order (A, B, C, D)
       gatesList.sort((a, b) => a.name.localeCompare(b.name));
       callback(gatesList);
     });
