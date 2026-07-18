@@ -50,6 +50,31 @@ export const FanMode: React.FC<FanModeProps> = ({ onNavigateToSettings, onNaviga
   // Report states
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportCategory, setReportCategory] = useState('Medical Concern');
+  const [activeLevel, setActiveLevel] = useState<'L1' | 'L2' | 'L3'>('L2');
+
+  const LEVEL_BLUEPRINTS = {
+    L1: {
+      name: "Ground Level Concourse",
+      image: "/stadium_l1.png",
+      filterClass: "brightness-[0.8] saturate-[1.1]",
+      tipTitle: "AI GATE INTAKE",
+      tipText: "Gate A is congested. Gate B (adjacent to Metro Shuttle Loop) is reporting optimal entry speeds. ETA: 3 min."
+    },
+    L2: {
+      name: "Main Seating Deck",
+      image: "/stadium_l2.png",
+      filterClass: "brightness-[0.9]",
+      tipTitle: "AI ROUTING TIP",
+      tipText: "Exit via Gate D to avoid the bottlenecks forming in the North-East plaza rideshare zones."
+    },
+    L3: {
+      name: "Suites & VIP Club Level",
+      image: "/stadium_l3.png",
+      filterClass: "brightness-[0.7] contrast-[1.1]",
+      tipTitle: "AI VIP SERVICES",
+      tipText: "VIP West elevators are operating under steady flow. Transit time to Suites 1-25 is under 2 minutes."
+    }
+  };
   const [reportLocation, setReportLocation] = useState('');
   const [reportDescription, setReportDescription] = useState('');
   const [reportSubmitting, setReportSubmitting] = useState(false);
@@ -102,6 +127,77 @@ export const FanMode: React.FC<FanModeProps> = ({ onNavigateToSettings, onNaviga
   // Quick Chat Shortcuts
   const handleShortcutClick = (shortcutText: string) => {
     handleChatSubmit(shortcutText);
+  };
+
+  const handleActionClick = (actionName: string) => {
+    let queryText = '';
+    if (actionName.startsWith('nearest_exit_')) {
+      const sec = actionName.replace('nearest_exit_', '');
+      queryText = `What is the nearest exit for Section ${sec}?`;
+    } else if (actionName.startsWith('nearest_restroom_')) {
+      const sec = actionName.replace('nearest_restroom_', '');
+      queryText = `Where is the nearest restroom for Section ${sec}?`;
+    } else if (actionName.startsWith('food_')) {
+      const rest = actionName.replace('food_', '').replace(/_/g, ' ');
+      const restName = rest.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      queryText = `Tell me about ${restName} and its food options.`;
+    } else {
+      queryText = actionName.replace(/_/g, ' ');
+    }
+    
+    if (queryText) {
+      handleChatSubmit(queryText);
+    }
+  };
+
+  const renderMessageText = (text: string) => {
+    const parts = [];
+    let lastIndex = 0;
+    const regex = /\[([^\]]+)\]\(([^)]+)\)/g;
+    let match;
+
+    while ((match = regex.exec(text)) !== null) {
+      const startIndex = match.index;
+      const label = match[1];
+      const url = match[2];
+
+      if (startIndex > lastIndex) {
+        parts.push(<span key={lastIndex}>{text.substring(lastIndex, startIndex)}</span>);
+      }
+
+      if (url.startsWith('action:')) {
+        const actionName = url.replace('action:', '');
+        parts.push(
+          <button
+            key={startIndex}
+            onClick={() => handleActionClick(actionName)}
+            className="mx-1 my-0.5 inline-flex items-center gap-xs px-2.5 py-0.5 bg-primary/20 hover:bg-primary/30 border border-primary/30 rounded text-xs font-semibold text-primary active:scale-95 transition-all cursor-pointer"
+          >
+            {label}
+          </button>
+        );
+      } else {
+        parts.push(
+          <a
+            key={startIndex}
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline font-semibold"
+          >
+            {label}
+          </a>
+        );
+      }
+
+      lastIndex = regex.lastIndex;
+    }
+
+    if (lastIndex < text.length) {
+      parts.push(<span key={lastIndex}>{text.substring(lastIndex)}</span>);
+    }
+
+    return parts.length > 0 ? parts : text;
   };
 
   // Submit report
@@ -252,7 +348,7 @@ export const FanMode: React.FC<FanModeProps> = ({ onNavigateToSettings, onNaviga
                 <span className="font-label-caps text-label-caps">DIRECTIONS</span>
               </button>
               <button 
-                onClick={() => handleShortcutClick("Where can I find vegan food options?")}
+                onClick={() => handleShortcutClick("What are the available food options and concessions?")}
                 className="flex flex-col items-center justify-center bg-surface-container py-lg rounded-xl hover:bg-surface-variant transition-all border border-outline-variant/30 group cursor-pointer"
               >
                 <span className="material-symbols-outlined text-primary mb-2 group-hover:scale-115 transition-transform">fastfood</span>
@@ -340,7 +436,7 @@ export const FanMode: React.FC<FanModeProps> = ({ onNavigateToSettings, onNaviga
                         : 'bg-surface-variant/30 text-on-surface border-outline-variant/20 rounded-bl-none'
                     }`}
                   >
-                    <p>{msg.text}</p>
+                    <div className="whitespace-pre-line">{renderMessageText(msg.text)}</div>
                     <span className="block text-right text-[9px] opacity-40 mt-1 font-data-mono">
                       {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
@@ -466,26 +562,43 @@ export const FanMode: React.FC<FanModeProps> = ({ onNavigateToSettings, onNaviga
           {/* Interactive Map card */}
           <div className="bg-surface-container rounded-xl overflow-hidden border border-outline-variant/20 shadow-lg">
             <div className="p-md border-b border-outline-variant/20 flex justify-between items-center bg-surface-container-high">
-              <h4 className="font-label-caps text-label-caps text-on-surface uppercase tracking-wider font-bold">Stadium Interactive Blueprint</h4>
-              <div className="flex gap-sm">
-                <button className="bg-surface-variant hover:bg-surface-bright px-sm py-1 rounded text-[10px] font-bold cursor-pointer">L1</button>
-                <button className="bg-primary/20 text-primary border border-primary/30 px-sm py-1 rounded text-[10px] font-bold cursor-pointer">L2</button>
-                <button className="bg-surface-variant hover:bg-surface-bright px-sm py-1 rounded text-[10px] font-bold cursor-pointer">L3</button>
+              <div className="flex items-center gap-sm">
+                <span className="material-symbols-outlined text-primary">map</span>
+                <h4 className="font-label-caps text-label-caps text-on-surface uppercase tracking-wider font-bold">
+                  {LEVEL_BLUEPRINTS[activeLevel].name} (Blueprint)
+                </h4>
+              </div>
+              <div className="flex gap-sm bg-surface-container-low p-0.5 rounded border border-outline-variant/10">
+                {(['L1', 'L2', 'L3'] as const).map((level) => (
+                  <button
+                    key={level}
+                    onClick={() => setActiveLevel(level)}
+                    className={`px-md py-1 rounded text-[10px] font-bold cursor-pointer transition-all ${
+                      activeLevel === level
+                        ? 'bg-primary text-on-primary shadow-sm'
+                        : 'text-on-surface-variant hover:text-on-surface'
+                    }`}
+                  >
+                    {level}
+                  </button>
+                ))}
               </div>
             </div>
-            <div className="h-80 relative">
+            <div className="h-80 relative overflow-hidden bg-[#02050b]">
               <div 
-                className="w-full h-full bg-cover bg-center brightness-[0.8]"
-                style={{ backgroundImage: `url('https://lh3.googleusercontent.com/aida-public/AB6AXuDFRqi0y5_ay-Gm8E4nlXvcZ4tR90AxTub_SxvO7vZZDNR0icYsK8qtY95v8VP7YwoRMiI-dwm03q8p7YrGgM7qwAvQPdR5Vb5VXGWYMqxKhRdlVI0M_-gLVSwKaypvmqV09Ki1wEXzhR_neoATvZXfnWDY1jr2ris46mLU_MfpIzeSS_ohsj93pqUwQp_un6QR2cNHg9RZpatU0bNHocmIaYueXmK-dz-00BudlTzgP8GeBIlEH_xDzIwbuy6mwD3sihpq62P8MrM')` }}
+                className={`w-full h-full bg-contain bg-center bg-no-repeat transition-all duration-500 ease-in-out ${LEVEL_BLUEPRINTS[activeLevel].filterClass}`}
+                style={{ backgroundImage: `url('${LEVEL_BLUEPRINTS[activeLevel].image}')` }}
               ></div>
               {/* AI Suggestion Tooltip Overlay */}
-              <div className="absolute top-1/4 left-1/3 glass-panel p-md rounded-lg shadow-xl ai-glow-border max-w-[220px]">
+              <div className="absolute top-1/4 left-1/3 glass-panel p-md rounded-lg shadow-xl ai-glow-border max-w-[240px] animate-in slide-in-from-top-4 duration-300">
                 <div className="flex items-center gap-xs mb-1">
                   <span className="material-symbols-outlined text-primary text-sm">auto_awesome</span>
-                  <span className="font-label-caps text-[10px] text-primary font-bold">AI ROUTING TIP</span>
+                  <span className="font-label-caps text-[10px] text-primary font-bold">
+                    {LEVEL_BLUEPRINTS[activeLevel].tipTitle}
+                  </span>
                 </div>
                 <p className="text-[11px] font-medium text-on-surface leading-snug">
-                  Exit via Gate D to avoid the bottleneck currently forming at the North-East Plaza.
+                  {LEVEL_BLUEPRINTS[activeLevel].tipText}
                 </p>
               </div>
             </div>
@@ -497,7 +610,7 @@ export const FanMode: React.FC<FanModeProps> = ({ onNavigateToSettings, onNaviga
       {/* REPORT AN INCIDENT MODAL OVERLAY */}
       {showReportModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-md z-[200] animate-fade-in">
-          <div className="bg-surface-container login-card-blur border border-outline-variant/30 rounded-xl p-lg max-w-md w-full relative z-[210] animate-in scale-in duration-300">
+          <div className="bg-surface-container login-card-blur border border-outline-variant/30 rounded-xl p-lg w-[90vw] sm:w-[450px] shrink-0 relative z-[210] duration-300">
             <div className="flex justify-between items-start mb-lg">
               <div>
                 <h3 className="font-headline-lg-mobile text-lg text-on-surface font-bold uppercase">Submit Incident Report</h3>
