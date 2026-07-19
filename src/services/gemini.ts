@@ -11,6 +11,40 @@ export const saveGeminiApiKey = (key: string) => {
   localStorage.setItem('setu_gemini_api_key', key);
 };
 
+const isRestaurantQuery = (message: string) =>
+  /\b(food|dining|eat|eating|concessions?|restaurants?|restuarants?|restraunts?|grill|cantina|cafe|café|menu|vegan|vegetarian|bbq|burger|taco|bowls?|snacks?)\b/.test(message);
+
+const isRestroomQuery = (message: string) =>
+  /\b(restrooms?|rest\s*rooms?|bathrooms?|toilets?|washrooms?|wc|baños?)\b/.test(message);
+
+const isLiveStatusQuery = (message: string) =>
+  /\b(crowd|wait|line|busy|queue|occupancy|occupied|congestion|status|how full|how crowded|gente|espera|fila|cola)\b/.test(message);
+
+const isGateQuery = (message: string) =>
+  /\b(gate|entrance|entry|enter|exit|way in|way out|puerta|entrada|salida)\b/.test(message);
+
+const isRecommendationQuery = (message: string) =>
+  /\b(best|fastest|quickest|shortest|least busy|least crowded|recommend|avoid|alternative|mejor|más rápido|menos)\b/.test(message);
+
+const matchesFacility = (message: string, facility: FacilityStatus) => {
+  const name = facility.name.toLowerCase();
+  return message.includes(facility.id.toLowerCase())
+    || message.includes(name)
+    || (facility.id === 'lone-star-grill' && message.includes('lone star'))
+    || (facility.id === 'verde-cantina' && message.includes('verde'))
+    || (facility.id === 'green-bowl' && message.includes('green bowl'))
+    || (facility.id === 'merch-store' && (message.includes('merch') || message.includes('munchies')));
+};
+
+const formatLiveFacilities = (facilities: FacilityStatus[], isSpanish: boolean) =>
+  facilities.map((facility) => isSpanish
+    ? `${facility.name} está ${facility.status === 'clear' ? 'tranquilo' : facility.status === 'moderate' ? 'moderadamente concurrido' : 'concurrido'}, con una ocupación del ${facility.occupancy}% y una espera aproximada de ${facility.waitTime}.`
+    : `${facility.name} is ${facility.status === 'clear' ? 'quiet' : facility.status === 'moderate' ? 'moderately busy' : 'busy'}, with ${facility.occupancy}% occupancy and an estimated ${facility.waitTime} wait.`
+  ).join(' ');
+
+const leastBusy = <T extends { occupancy: number }>(items: T[]) =>
+  items.reduce((best, item) => item.occupancy < best.occupancy ? item : best);
+
 // -------------------------------------------------------------
 // MOCK RESPONSES FOR OFFLINE MODE (No API Key)
 // -------------------------------------------------------------
@@ -34,8 +68,56 @@ const mockChatResponse = (
       : `Active stadium announcement: ${latestBroadcast.message}`;
   }
 
+  // Gate questions use the live Firebase gate collection, including recommendations.
+  if (gates && gates.length > 0 && isGateQuery(msg) && (isLiveStatusQuery(msg) || isRecommendationQuery(msg))) {
+    const namedGate = gates.find((gate) =>
+      msg.includes(gate.name.toLowerCase()) || msg.includes(gate.id.replace('-', ' '))
+    );
+
+    if (namedGate) {
+      return isSpanish
+        ? `Estado en tiempo real para ${namedGate.name}: ocupación ${namedGate.occupancy}%, espera ${namedGate.waitTime}, estado ${namedGate.status}.`
+        : `Right now, ${namedGate.name} is ${namedGate.status === 'clear' ? 'quiet' : namedGate.status === 'optimal' ? 'flowing smoothly' : namedGate.status === 'steady' ? 'steady' : 'very busy'}, with ${namedGate.occupancy}% occupancy and an estimated ${namedGate.waitTime} wait.`;
+    }
+
+    const bestGate = leastBusy(gates);
+    if (isRecommendationQuery(msg)) {
+      return isSpanish
+        ? `La mejor entrada ahora es ${bestGate.name}: ocupación ${bestGate.occupancy}% y espera de ${bestGate.waitTime} (${bestGate.status}).`
+        : `Best live entry right now: ${bestGate.name} — ${bestGate.occupancy}% occupied with a ${bestGate.waitTime} wait (${bestGate.status}).`;
+    }
+  }
+
+  // Identify the requested stadium service before falling back to general crowd data.
+  // This makes the offline assistant use the same live Firebase facility records as the UI.
+  if (facilities && facilities.length > 0 && (isLiveStatusQuery(msg) || isRecommendationQuery(msg))) {
+    const isRestaurant = isRestaurantQuery(msg);
+    const isRestroom = isRestroomQuery(msg);
+    const namedFacilities = facilities.filter((facility) => matchesFacility(msg, facility));
+    const relevantFacilities = namedFacilities.length > 0
+      ? namedFacilities
+      : isRestaurant
+        ? facilities.filter((facility) => facility.type === 'restaurant')
+        : isRestroom
+          ? facilities.filter((facility) => facility.type === 'restroom')
+          : [];
+
+    if (relevantFacilities.length > 0) {
+      const heading = isSpanish
+        ? 'Ahora mismo:'
+        : 'Right now:';
+      const bestFacility = leastBusy(relevantFacilities);
+      if (isRecommendationQuery(msg) && relevantFacilities.length > 1) {
+        return isSpanish
+          ? `La mejor opción ahora es ${bestFacility.name}: ocupación ${bestFacility.occupancy}% y espera de ${bestFacility.waitTime} (${bestFacility.status}).\n\n${heading}\n${formatLiveFacilities(relevantFacilities, isSpanish)}`
+          : `Best live option: ${bestFacility.name} — ${bestFacility.occupancy}% occupied with a ${bestFacility.waitTime} wait (${bestFacility.status}).\n\n${heading}\n${formatLiveFacilities(relevantFacilities, isSpanish)}`;
+      }
+      return `${heading}\n${formatLiveFacilities(relevantFacilities, isSpanish)}`;
+    }
+  }
+
   // Real-time crowd, wait time, or congestion queries
-  if (msg.includes('crowd') || msg.includes('wait') || msg.includes('line') || msg.includes('busy') || msg.includes('queue') || msg.includes('occupancy') || msg.includes('congestion') || msg.includes('gente') || msg.includes('espera') || msg.includes('fila') || msg.includes('cola')) {
+  if (isLiveStatusQuery(msg)) {
     if (gates && gates.length > 0) {
       // Check if a specific gate is mentioned
       for (const gate of gates) {
@@ -49,8 +131,7 @@ const mockChatResponse = (
     if (facilities && facilities.length > 0) {
       // Check if a specific facility is mentioned
       for (const fac of facilities) {
-        const normalizedFacName = fac.name.toLowerCase();
-        if (msg.includes(fac.id.toLowerCase()) || msg.includes(normalizedFacName) || (fac.id === 'lone-star-grill' && msg.includes('lone star')) || (fac.id === 'verde-cantina' && msg.includes('verde')) || (fac.id === 'green-bowl' && msg.includes('green bowl')) || (fac.id === 'merch-store' && msg.includes('merch'))) {
+        if (matchesFacility(msg, fac)) {
           return isSpanish
             ? `Estado en tiempo real para ${fac.name}: Ocupación ${fac.occupancy}%, Tiempo de espera: ${fac.waitTime}. Estado: ${fac.status}.`
             : `Real-time status for ${fac.name}: Occupancy is ${fac.occupancy}%, current wait time is ${fac.waitTime} (${fac.status}).`;
@@ -337,9 +418,15 @@ ${broadcasts && broadcasts.length > 0 ? broadcasts.slice(0, 3).map(b => `- ${b.m
 Guidelines:
 - ONLY answer using the facts and real-time telemetry listed above.
 - Answer in the language: ${language}.
+- Speak to fans in clear, natural sentences. Never mention Firebase, telemetry, a database, a status code, or an internal system. Translate live values into plain language while retaining the exact occupancy and wait time when relevant.
+- First identify the user's intent and the entity they are asking about, including spelling mistakes and everyday wording. Do not answer with gates merely because a user mentions "busy", "wait", or "occupancy"; first determine whether they mean a gate, restaurant, concession, restroom, merch store, transit service, policy, or stadium alert.
+- Handle these request types: live crowd status and best/fastest route; restaurant menus, dietary options, location, and live queues; restroom location, accessibility, and live queues; gates and section-based directions; shuttles, rideshare, train, and parking; bag, re-entry, gate-opening, and prohibited-item rules; and public operational announcements.
 - Real-Time Data Integration:
   * When asked about lines, crowds, wait times, or how busy/occupied a gate, concession, or restroom is, use the "Real-Time Telemetry and Crowd Data" listed above.
   * Provide the exact occupancy percentage and wait time from the real-time telemetry. Do NOT make up numbers or wait times.
+  * Select the telemetry source by the entity in the question: restaurant, concession, dining, merch, or restroom questions MUST use matching Facility States, never Gate States. Gate states are only for questions about entry/exit gates.
+  * For a general restaurant or restroom occupancy question, list every matching live Facility State. Recognize common misspellings such as "restuarants" as restaurants.
+  * When asked for the best, fastest, shortest-line, least-busy, or recommended live option, compare the matching telemetry records and recommend the one with the lowest occupancy, citing its current wait time and status.
   * When asked about alerts, announcements, or operational updates, use only the Current Public Stadium Announcements above.
 - Restroom & Exit requests logic:
   * If a section number is NOT mentioned in the query: Respond with a list of exactly these 5 sections to click: [Section 105](action:nearest_restroom_105), [Section 114](action:nearest_restroom_114), [Section 203](action:nearest_restroom_203), [Section 302](action:nearest_restroom_302), and [Section 324](action:nearest_restroom_324) (use "nearest_exit" instead of "nearest_restroom" for exit requests).
