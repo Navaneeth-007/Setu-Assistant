@@ -45,7 +45,7 @@ export const FanMode: React.FC<FanModeProps> = ({ onNavigateToSettings, onNaviga
     }
   ]);
   const [chatLoading, setChatLoading] = useState(false);
-  const chatBottomRef = useRef<HTMLDivElement>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
 
   // Report states
   const [showReportModal, setShowReportModal] = useState(false);
@@ -82,7 +82,12 @@ export const FanMode: React.FC<FanModeProps> = ({ onNavigateToSettings, onNaviga
 
   // Auto scroll chat
   useEffect(() => {
-    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const chatPanel = chatScrollRef.current;
+    if (!chatPanel) return;
+
+    requestAnimationFrame(() => {
+      chatPanel.scrollTo({ top: chatPanel.scrollHeight, behavior: 'smooth' });
+    });
   }, [chatMessages, chatLoading]);
 
   // Handle Chat submit
@@ -102,7 +107,7 @@ export const FanMode: React.FC<FanModeProps> = ({ onNavigateToSettings, onNaviga
 
     try {
       // Build history format from state if needed, or send single message RAG
-      const aiReply = await chatWithAssistant(messageText, selectedLanguage.name);
+      const aiReply = await chatWithAssistant(messageText, selectedLanguage.name, gates, facilities, broadcasts);
       
       const aiMsg: ChatMessage = {
         id: 'msg_' + Math.random().toString(36).substr(2, 9),
@@ -494,7 +499,7 @@ export const FanMode: React.FC<FanModeProps> = ({ onNavigateToSettings, onNaviga
             </div>
 
             {/* Chat message stream */}
-            <div className="flex-1 overflow-y-auto space-y-md pr-2 mb-md">
+            <div ref={chatScrollRef} className="flex-1 min-h-0 overflow-y-auto space-y-md pr-2 mb-md">
               {chatMessages.map(msg => (
                 <div 
                   key={msg.id}
@@ -522,7 +527,7 @@ export const FanMode: React.FC<FanModeProps> = ({ onNavigateToSettings, onNaviga
                   </div>
                 </div>
               )}
-              <div ref={chatBottomRef} />
+              <div />
             </div>
 
             {/* Chat Inputs */}
