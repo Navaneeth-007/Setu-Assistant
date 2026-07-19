@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { stadiumKnowledge } from '../data/stadiumKnowledge';
-import type { GateStatus, FanReport } from './firebase';
+import type { BroadcastMessage, GateStatus, FanReport, FacilityStatus } from './firebase';
 
 // Helper to get Gemini API key
 export const getGeminiApiKey = (): string | null => {
@@ -14,11 +14,58 @@ export const saveGeminiApiKey = (key: string) => {
 // -------------------------------------------------------------
 // MOCK RESPONSES FOR OFFLINE MODE (No API Key)
 // -------------------------------------------------------------
-const mockChatResponse = (message: string, language: string): string => {
+const mockChatResponse = (
+  message: string,
+  language: string,
+  gates?: GateStatus[],
+  facilities?: FacilityStatus[],
+  broadcasts?: BroadcastMessage[]
+): string => {
   const msg = message.toLowerCase();
   const lang = language.toLowerCase();
-  
+
   const isSpanish = lang.includes('es') || lang.includes('span');
+
+  // Public ops announcements are live fan-facing information.
+  if ((msg.includes('alert') || msg.includes('announcement') || msg.includes('broadcast') || msg.includes('update')) && broadcasts && broadcasts.length > 0) {
+    const latestBroadcast = broadcasts[0];
+    return isSpanish
+      ? `Aviso activo del estadio: ${latestBroadcast.message}`
+      : `Active stadium announcement: ${latestBroadcast.message}`;
+  }
+
+  // Real-time crowd, wait time, or congestion queries
+  if (msg.includes('crowd') || msg.includes('wait') || msg.includes('line') || msg.includes('busy') || msg.includes('queue') || msg.includes('occupancy') || msg.includes('congestion') || msg.includes('gente') || msg.includes('espera') || msg.includes('fila') || msg.includes('cola')) {
+    if (gates && gates.length > 0) {
+      // Check if a specific gate is mentioned
+      for (const gate of gates) {
+        if (msg.includes(gate.name.toLowerCase()) || msg.includes(gate.id.replace('-', ' ').toLowerCase())) {
+          return isSpanish
+            ? `Estado en tiempo real para ${gate.name}: Ocupación ${gate.occupancy}%, Tiempo de espera: ${gate.waitTime}. Estado: ${gate.status}.`
+            : `Real-time status for ${gate.name}: Occupancy is ${gate.occupancy}%, current wait time is ${gate.waitTime} (${gate.status}).`;
+        }
+      }
+    }
+    if (facilities && facilities.length > 0) {
+      // Check if a specific facility is mentioned
+      for (const fac of facilities) {
+        const normalizedFacName = fac.name.toLowerCase();
+        if (msg.includes(fac.id.toLowerCase()) || msg.includes(normalizedFacName) || (fac.id === 'lone-star-grill' && msg.includes('lone star')) || (fac.id === 'verde-cantina' && msg.includes('verde')) || (fac.id === 'green-bowl' && msg.includes('green bowl')) || (fac.id === 'merch-store' && msg.includes('merch'))) {
+          return isSpanish
+            ? `Estado en tiempo real para ${fac.name}: Ocupación ${fac.occupancy}%, Tiempo de espera: ${fac.waitTime}. Estado: ${fac.status}.`
+            : `Real-time status for ${fac.name}: Occupancy is ${fac.occupancy}%, current wait time is ${fac.waitTime} (${fac.status}).`;
+        }
+      }
+    }
+
+    // Fallback/General crowd query
+    if (gates && gates.length > 0) {
+      const gateStatusStr = gates.map(g => `${g.name}: ${g.waitTime} wait (${g.occupancy}% full, ${g.status})`).join('\n');
+      return isSpanish
+        ? `Aquí está el estado actual del flujo de multitudes en las puertas:\n${gateStatusStr.replace(/wait/g, 'de espera').replace(/full/g, 'lleno')}`
+        : `Here is the current real-time crowd status at the gates:\n${gateStatusStr}`;
+    }
+  }
   
   // Specific Restroom Queries
   if (msg.includes('restroom') || msg.includes('bathroom') || msg.includes('toilet') || msg.includes('wc') || msg.includes('baño')) {
@@ -225,6 +272,9 @@ const MODEL_NAME = 'gemini-3.5-flash';
 export const chatWithAssistant = async (
   message: string, 
   language: string, 
+  gates?: GateStatus[],
+  facilities?: FacilityStatus[],
+  broadcasts?: BroadcastMessage[],
   _history: { role: 'user' | 'model'; parts: string[] }[] = []
 ): Promise<string> => {
   const apiKey = getGeminiApiKey();
@@ -232,7 +282,7 @@ export const chatWithAssistant = async (
   if (!apiKey) {
     console.log("No Gemini API key found. Using offline response simulation.");
     return new Promise((resolve) => {
-      setTimeout(() => resolve(mockChatResponse(message, language)), 1200);
+      setTimeout(() => resolve(mockChatResponse(message, language, gates, facilities, broadcasts)), 1200);
     });
   }
 
@@ -273,9 +323,24 @@ Transit and Parking:
 - Parking details: ${stadiumKnowledge.transitAndParking.parkingLots}
 ---
 
+Real-Time Telemetry and Crowd Data (incorporate this into answers about wait times, crowd level, occupancy, or current facility status):
+--- Real-time Gate States ---
+${gates && gates.length > 0 ? gates.map(g => `- ${g.name}: Occupancy ${g.occupancy}%, Wait Time: ${g.waitTime}, Status: ${g.status}`).join('\n') : 'No real-time gate telemetry available.'}
+
+--- Real-time Facility States ---
+${facilities && facilities.length > 0 ? facilities.map(f => `- ${f.name} (${f.type}): Occupancy ${f.occupancy}%, Wait Time: ${f.waitTime}, Status: ${f.status}`).join('\n') : 'No real-time facility telemetry available.'}
+
+--- Current Public Stadium Announcements ---
+${broadcasts && broadcasts.length > 0 ? broadcasts.slice(0, 3).map(b => `- ${b.message}`).join('\n') : 'No active public stadium announcements.'}
+---
+
 Guidelines:
-- ONLY answer using the facts listed above.
+- ONLY answer using the facts and real-time telemetry listed above.
 - Answer in the language: ${language}.
+- Real-Time Data Integration:
+  * When asked about lines, crowds, wait times, or how busy/occupied a gate, concession, or restroom is, use the "Real-Time Telemetry and Crowd Data" listed above.
+  * Provide the exact occupancy percentage and wait time from the real-time telemetry. Do NOT make up numbers or wait times.
+  * When asked about alerts, announcements, or operational updates, use only the Current Public Stadium Announcements above.
 - Restroom & Exit requests logic:
   * If a section number is NOT mentioned in the query: Respond with a list of exactly these 5 sections to click: [Section 105](action:nearest_restroom_105), [Section 114](action:nearest_restroom_114), [Section 203](action:nearest_restroom_203), [Section 302](action:nearest_restroom_302), and [Section 324](action:nearest_restroom_324) (use "nearest_exit" instead of "nearest_restroom" for exit requests).
   * If a section number IS mentioned (e.g. "Section 302" or "105"): Do not output the list. Directly answer with the location details of the nearest restroom/exit for that section from the facts.
@@ -286,8 +351,8 @@ Guidelines:
     - [The Green Bowl](action:food_the_green_bowl) (Section 144): Healthy Bowls & Salads.
     - [Merch & Munchies](action:food_merch_&_munchies) (Section 312): Classic Stadium Snacks.
   * If asking about a specific restaurant, describe its menu, location, and vegan options.
-- Tone: Speak in a professional, direct stadium agent tone. Avoid conversational filler. Keep responses under 2-3 sentences.
-- If the user asks about something NOT in the database (e.g. current score, ticket purchases, specific player names), state clearly: "I apologize, but as a stadium infrastructure assistant, I do not have access to that real-time game information."
+- Tone: Speak in a professional, direct stadium agent tone. Avoid conversational filler. Use as much detail as needed to give a complete, useful answer.
+- If the user asks about something NOT in the database or real-time telemetry (e.g. current score, ticket purchases, specific player names), state clearly: "I apologize, but as a stadium infrastructure assistant, I do not have access to that real-time game information."
 `;
 
     // Construct full system prompt + history
@@ -297,7 +362,7 @@ Guidelines:
         parts: [{ text: contextPrompt }]
       },
       generationConfig: {
-        maxOutputTokens: 800,
+        maxOutputTokens: 1600,
         temperature: 0.2
       }
     });
@@ -307,7 +372,7 @@ Guidelines:
   } catch (error) {
     console.warn("Gemini API error (possibly quota exceeded), falling back to offline simulation:", error);
     // Graceful fallback to mock response so the user can still test all options
-    return mockChatResponse(message, language);
+    return mockChatResponse(message, language, gates, facilities, broadcasts);
   }
 };
 
