@@ -8,34 +8,29 @@ interface OpsModeProps {
   onNavigateToFan: () => void; // Allow staff to toggle to Fan Mode
 }
 
-interface SituationAction {
-  title: string;
-  description: string;
-  type: 'critical' | 'warning' | 'info';
-}
+
 
 export const OpsMode: React.FC<OpsModeProps> = ({ onNavigateToSettings, onNavigateToFan }) => {
   const { user, logout } = useAuth();
-  const { reports, broadcasts, gates, sendBroadcast, updateGateStatus } = useLiveData();
+  const { 
+    reports, 
+    broadcasts, 
+    gates, 
+    briefActions, 
+    facilities, 
+    sendBroadcast, 
+    updateGateStatus, 
+    updateBriefActions,
+    updateFacilityStatus,
+    updateReportStatus
+  } = useLiveData();
 
   // Broadcast text state
   const [broadcastInput, setBroadcastInput] = useState('');
   const [broadcastSending, setBroadcastSending] = useState(false);
   const [broadcastSuccess, setBroadcastSuccess] = useState(false);
 
-  // Situation Brief states
-  const [briefActions, setBriefActions] = useState<SituationAction[]>([
-    {
-      title: "CRITICAL ACTION REQUIRED",
-      description: "Reroute incoming fans away from Gate A to Gate B. Queue density at Gate A is exceeding safety threshold (92%).",
-      type: "critical"
-    },
-    {
-      title: "MAINTENANCE DISPATCH",
-      description: "Dispatch technician to Section 114 to repair lighting array failure reported by visual AI triage.",
-      type: "warning"
-    }
-  ]);
+  // Situation Brief state
   const [briefLoading, setBriefLoading] = useState(false);
 
   // Gate simulation states (to allow easy testing of real-time wait times)
@@ -43,12 +38,17 @@ export const OpsMode: React.FC<OpsModeProps> = ({ onNavigateToSettings, onNaviga
   const [simOccupancy, setSimOccupancy] = useState(50);
   const [simWaitTime, setSimWaitTime] = useState('10m');
 
+  // Facility simulation states
+  const [selectedFacilitySim, setSelectedFacilitySim] = useState<any>(null);
+  const [simFacilityOccupancy, setSimFacilityOccupancy] = useState(50);
+  const [simFacilityWaitTime, setSimFacilityWaitTime] = useState('10m');
+
   // Trigger Situation Brief generation
   const handleGenerateBrief = async () => {
     setBriefLoading(true);
     try {
       const brief = await generateSituationBrief(gates, reports);
-      setBriefActions(brief.actions);
+      await updateBriefActions(brief.actions);
     } catch (e) {
       console.error("Failed to generate brief:", e);
     } finally {
@@ -96,6 +96,31 @@ export const OpsMode: React.FC<OpsModeProps> = ({ onNavigateToSettings, onNaviga
     setSelectedGateSim(gate);
     setSimOccupancy(gate.occupancy);
     setSimWaitTime(gate.waitTime);
+  };
+
+  const selectFacilityForSim = (facility: any) => {
+    setSelectedFacilitySim(facility);
+    setSimFacilityOccupancy(facility.occupancy);
+    setSimFacilityWaitTime(facility.waitTime);
+  };
+
+  const handleFacilitySimSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedFacilitySim) return;
+
+    let status: 'clear' | 'moderate' | 'busy' | 'dense' = 'clear';
+    if (simFacilityOccupancy >= 80) {
+      status = selectedFacilitySim.type === 'restroom' ? 'dense' : 'busy';
+    } else if (simFacilityOccupancy > 40) {
+      status = 'moderate';
+    }
+
+    try {
+      await updateFacilityStatus(selectedFacilitySim.id, simFacilityOccupancy, simFacilityWaitTime, status);
+      setSelectedFacilitySim(null);
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   return (
@@ -163,19 +188,6 @@ export const OpsMode: React.FC<OpsModeProps> = ({ onNavigateToSettings, onNaviga
 
           <div className="flex items-center gap-lg">
             {/* Nav controls */}
-            <button 
-              onClick={onNavigateToSettings}
-              className="p-1.5 text-on-surface-variant hover:text-primary transition-colors cursor-pointer"
-              title="Settings"
-            >
-              <span className="material-symbols-outlined text-xl">settings</span>
-            </button>
-            <button 
-              onClick={onNavigateToFan}
-              className="px-md py-sm bg-primary-container text-on-primary-container font-label-caps text-label-caps rounded-lg border border-primary/20 hover:bg-surface-bright transition-colors cursor-pointer"
-            >
-              Fan View
-            </button>
 
             <div className="flex items-center gap-md ml-sm border-l border-outline-variant/20 pl-lg">
               <div className="text-right hidden sm:block">
@@ -213,7 +225,7 @@ export const OpsMode: React.FC<OpsModeProps> = ({ onNavigateToSettings, onNaviga
             </div>
           )}
 
-          <div className="ops-grid">
+          <div className="grid grid-cols-12 gap-lg">
             
             {/* AI Situation Brief (Central Operational Support) */}
             <section className="col-span-12 lg:col-span-8 bg-surface-container-high ai-glow rounded-2xl p-xl overflow-hidden relative border border-primary/20">
@@ -221,20 +233,20 @@ export const OpsMode: React.FC<OpsModeProps> = ({ onNavigateToSettings, onNaviga
                 <span className="material-symbols-outlined text-[160px]">psychology</span>
               </div>
               
-              <div className="flex flex-col md:flex-row justify-between items-start mb-xl relative z-10">
-                <div>
-                  <div className="flex items-center gap-sm mb-xs">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-lg mb-xl relative z-10">
+                <div className="space-y-xs max-w-[70%]">
+                  <div className="flex items-center gap-sm">
                     <span className="material-symbols-outlined text-primary">auto_awesome</span>
-                    <h3 className="font-headline-lg-mobile text-xl text-on-surface font-bold uppercase tracking-wide">GenAI Situation Brief</h3>
+                    <h3 className="text-xl text-on-surface font-bold uppercase tracking-wider">GenAI Situation Brief</h3>
                   </div>
-                  <p className="text-on-surface-variant font-body-md text-sm max-w-xl">
+                  <p className="text-on-surface-variant font-body-md text-sm leading-relaxed">
                     Reads real-time gate occupancy, wait times, and fan tickets to compile recommendations.
                   </p>
                 </div>
                 <button 
                   onClick={handleGenerateBrief}
                   disabled={briefLoading}
-                  className="mt-md md:mt-0 flex items-center gap-sm bg-primary/10 border border-primary/30 text-primary px-lg py-md rounded-xl font-label-caps text-xs hover:bg-primary/20 transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+                  className="mt-md md:mt-0 shrink-0 flex items-center gap-sm bg-primary/10 border border-primary/30 text-primary px-lg py-md rounded-xl font-label-caps text-xs hover:bg-primary/20 transition-all active:scale-95 cursor-pointer disabled:opacity-50"
                 >
                   {briefLoading ? (
                     <>
@@ -336,61 +348,174 @@ export const OpsMode: React.FC<OpsModeProps> = ({ onNavigateToSettings, onNaviga
               </form>
             </section>
 
-            {/* Real-time Gate Occupancy monitors */}
-            <section className="col-span-12 lg:col-span-7 bg-surface-container-lowest/20 p-md rounded-xl border border-outline-variant/10">
-              <div className="flex items-center justify-between mb-lg px-2">
-                <h3 className="font-label-caps text-xs text-on-surface-variant flex items-center gap-sm uppercase tracking-[0.15em] font-bold">
-                  <span className="material-symbols-outlined text-lg">sensor_door</span>
-                  Gate Occupancy Telemetry
-                </h3>
-                <span className="text-[10px] text-on-surface-variant font-data-mono uppercase">Click a gate to simulate load</span>
-              </div>
+            {/* Real-time Gate & Facility Occupancy monitors */}
+            <div className="col-span-12 lg:col-span-7 flex flex-col gap-lg">
+              
+              {/* Gates Telemetry */}
+              <section className="bg-surface-container-lowest/20 p-md rounded-xl border border-outline-variant/10">
+                <div className="flex items-center justify-between mb-lg px-2">
+                  <h3 className="font-label-caps text-xs text-on-surface-variant flex items-center gap-sm uppercase tracking-[0.15em] font-bold">
+                    <span className="material-symbols-outlined text-lg">sensor_door</span>
+                    Gate Occupancy Telemetry
+                  </h3>
+                  <span className="text-[10px] text-on-surface-variant font-data-mono uppercase">Click a gate to simulate load</span>
+                </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-lg">
-                {gates.map(gate => (
-                  <div 
-                    key={gate.id}
-                    onClick={() => selectGateForSim(gate)}
-                    className={`bg-surface-container-low p-lg rounded-2xl border border-outline-variant/30 hover:border-primary/50 transition-all group cursor-pointer ${
-                      selectedGateSim?.id === gate.id ? 'ring-2 ring-primary border-transparent' : ''
-                    }`}
-                  >
-                    <div className="flex justify-between items-center mb-lg">
-                      <span className="font-headline-lg-mobile text-lg font-bold">{gate.name}</span>
-                      <span className={`px-3 py-1 rounded-full font-data-mono text-[10px] font-bold uppercase tracking-wider border ${
-                        gate.status === 'critical' 
-                          ? 'bg-error/10 border-error/25 text-error' 
-                          : gate.status === 'optimal' 
-                            ? 'bg-primary/10 border-primary/25 text-primary' 
-                            : gate.status === 'clear' 
-                              ? 'bg-tertiary/10 border-tertiary/25 text-tertiary' 
-                              : 'bg-surface-container-highest border-outline-variant/35 text-on-surface-variant'
-                      }`}>
-                        {gate.status}
-                      </span>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-lg">
+                  {gates.map(gate => (
+                    <div 
+                      key={gate.id}
+                      onClick={() => selectGateForSim(gate)}
+                      className={`bg-surface-container-low p-lg rounded-2xl border border-outline-variant/30 hover:border-primary/50 transition-all group cursor-pointer ${
+                        selectedGateSim?.id === gate.id ? 'ring-2 ring-primary border-transparent' : ''
+                      }`}
+                    >
+                      <div className="flex justify-between items-center mb-lg">
+                        <span className="font-headline-lg-mobile text-lg font-bold">{gate.name}</span>
+                        <span className={`px-3 py-1 rounded-full font-data-mono text-[10px] font-bold uppercase tracking-wider border ${
+                          gate.status === 'critical' 
+                            ? 'bg-error/10 border-error/25 text-error' 
+                            : gate.status === 'optimal' 
+                              ? 'bg-primary/10 border-primary/25 text-primary' 
+                              : gate.status === 'clear' 
+                                ? 'bg-tertiary/10 border-tertiary/25 text-tertiary' 
+                                : 'bg-surface-container-highest border-outline-variant/35 text-on-surface-variant'
+                        }`}>
+                          {gate.status}
+                        </span>
+                      </div>
+                      <div className="space-y-md">
+                        <div className="flex justify-between font-label-caps text-[11px] uppercase tracking-wide opacity-70">
+                          <span>Intake Capacity</span>
+                          <span className={`font-bold ${gate.status === 'critical' ? 'text-error' : 'text-on-surface'}`}>{gate.occupancy}%</span>
+                        </div>
+                        <div className="w-full h-3 bg-surface-container-highest rounded-full overflow-hidden p-0.5">
+                          <div 
+                            className={`h-full rounded-full transition-all duration-1000 ${
+                              gate.status === 'critical' ? 'bg-error' : 'bg-primary'
+                            }`} 
+                            style={{ width: `${gate.occupancy}%` }}
+                          ></div>
+                        </div>
+                        <div className="flex justify-between items-center pt-md border-t border-outline-variant/20">
+                          <span className="text-on-surface-variant font-label-caps text-[10px] uppercase tracking-widest">Est. Wait</span>
+                          <span className="font-data-mono text-on-surface font-bold">{gate.waitTime}</span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="space-y-md">
-                      <div className="flex justify-between font-label-caps text-[11px] uppercase tracking-wide opacity-70">
-                        <span>Intake Capacity</span>
-                        <span className={`font-bold ${gate.status === 'critical' ? 'text-error' : 'text-on-surface'}`}>{gate.occupancy}%</span>
+                  ))}
+                </div>
+              </section>
+
+              {/* Facilities Telemetry */}
+              <section className="bg-surface-container-lowest/20 p-md rounded-xl border border-outline-variant/10">
+                <div className="flex items-center justify-between mb-lg px-2">
+                  <h3 className="font-label-caps text-xs text-on-surface-variant flex items-center gap-sm uppercase tracking-[0.15em] font-bold">
+                    <span className="material-symbols-outlined text-lg">storefront</span>
+                    Facilities Telemetry Simulator
+                  </h3>
+                  <span className="text-[10px] text-on-surface-variant font-data-mono uppercase">Click a facility to simulate load</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-lg">
+                  {facilities.filter(fac => fac.type === 'restaurant' || fac.type === 'merch').map(fac => (
+                    <div 
+                      key={fac.id}
+                      onClick={() => selectFacilityForSim(fac)}
+                      className={`bg-surface-container-low p-lg rounded-2xl border border-outline-variant/30 hover:border-primary/50 transition-all group cursor-pointer ${
+                        selectedFacilitySim?.id === fac.id ? 'ring-2 ring-primary border-transparent' : ''
+                      }`}
+                    >
+                      <div className="flex justify-between items-center mb-lg">
+                        <span className="font-headline-lg-mobile text-lg font-bold truncate pr-xs">{fac.name}</span>
+                        <span className={`px-3 py-1 rounded-full font-data-mono text-[10px] font-bold uppercase tracking-wider border ${
+                          fac.status === 'dense' || fac.status === 'busy'
+                            ? 'bg-error/10 border-error/25 text-error' 
+                            : fac.status === 'moderate' 
+                              ? 'bg-secondary/10 border-secondary/25 text-secondary' 
+                              : 'bg-tertiary/10 border-tertiary/25 text-tertiary'
+                        }`}>
+                          {fac.status}
+                        </span>
                       </div>
-                      <div className="w-full h-3 bg-surface-container-highest rounded-full overflow-hidden p-0.5">
-                        <div 
-                          className={`h-full rounded-full transition-all duration-1000 ${
-                            gate.status === 'critical' ? 'bg-error' : 'bg-primary'
-                          }`} 
-                          style={{ width: `${gate.occupancy}%` }}
-                        ></div>
-                      </div>
-                      <div className="flex justify-between items-center pt-md border-t border-outline-variant/20">
-                        <span className="text-on-surface-variant font-label-caps text-[10px] uppercase tracking-widest">Est. Wait</span>
-                        <span className="font-data-mono text-on-surface font-bold">{gate.waitTime}</span>
+                      <div className="space-y-md">
+                        <div className="flex justify-between font-label-caps text-[11px] uppercase tracking-wide opacity-70">
+                          <span>Crowd Occupancy</span>
+                          <span className={`font-bold ${fac.status === 'dense' || fac.status === 'busy' ? 'text-error' : 'text-on-surface'}`}>{fac.occupancy}%</span>
+                        </div>
+                        <div className="w-full h-3 bg-surface-container-highest rounded-full overflow-hidden p-0.5">
+                          <div 
+                            className={`h-full rounded-full transition-all duration-1000 ${
+                              fac.status === 'dense' || fac.status === 'busy' ? 'bg-error' : 'bg-primary'
+                            }`} 
+                            style={{ width: `${fac.occupancy}%` }}
+                          ></div>
+                        </div>
+                        <div className="flex justify-between items-center pt-md border-t border-outline-variant/20">
+                          <span className="text-on-surface-variant font-label-caps text-[10px] uppercase tracking-widest">Est. Wait</span>
+                          <span className="font-data-mono text-on-surface font-bold">{fac.waitTime}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </section>
+                  ))}
+                </div>
+              </section>
+
+              {/* Restrooms Telemetry */}
+              <section className="bg-surface-container-lowest/20 p-md rounded-xl border border-outline-variant/10">
+                <div className="flex items-center justify-between mb-lg px-2">
+                  <h3 className="font-label-caps text-xs text-on-surface-variant flex items-center gap-sm uppercase tracking-[0.15em] font-bold">
+                    <span className="material-symbols-outlined text-lg">wc</span>
+                    Restroom Telemetry Simulator
+                  </h3>
+                  <span className="text-[10px] text-on-surface-variant font-data-mono uppercase">Click a restroom to simulate load</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-lg">
+                  {facilities.filter(fac => fac.type === 'restroom').map(fac => (
+                    <div 
+                      key={fac.id}
+                      onClick={() => selectFacilityForSim(fac)}
+                      className={`bg-surface-container-low p-lg rounded-2xl border border-outline-variant/30 hover:border-primary/50 transition-all group cursor-pointer ${
+                        selectedFacilitySim?.id === fac.id ? 'ring-2 ring-primary border-transparent' : ''
+                      }`}
+                    >
+                      <div className="flex justify-between items-center mb-lg">
+                        <span className="font-headline-lg-mobile text-lg font-bold truncate pr-xs">{fac.name}</span>
+                        <span className={`px-3 py-1 rounded-full font-data-mono text-[10px] font-bold uppercase tracking-wider border ${
+                          fac.status === 'dense' || fac.status === 'busy'
+                            ? 'bg-error/10 border-error/25 text-error' 
+                            : fac.status === 'moderate' 
+                              ? 'bg-secondary/10 border-secondary/25 text-secondary' 
+                              : 'bg-tertiary/10 border-tertiary/25 text-tertiary'
+                        }`}>
+                          {fac.status}
+                        </span>
+                      </div>
+                      <div className="space-y-md">
+                        <div className="flex justify-between font-label-caps text-[11px] uppercase tracking-wide opacity-70">
+                          <span>Crowd Occupancy</span>
+                          <span className={`font-bold ${fac.status === 'dense' || fac.status === 'busy' ? 'text-error' : 'text-on-surface'}`}>{fac.occupancy}%</span>
+                        </div>
+                        <div className="w-full h-3 bg-surface-container-highest rounded-full overflow-hidden p-0.5">
+                          <div 
+                            className={`h-full rounded-full transition-all duration-1000 ${
+                              fac.status === 'dense' || fac.status === 'busy' ? 'bg-error' : 'bg-primary'
+                            }`} 
+                            style={{ width: `${fac.occupancy}%` }}
+                          ></div>
+                        </div>
+                        <div className="flex justify-between items-center pt-md border-t border-outline-variant/20">
+                          <span className="text-on-surface-variant font-label-caps text-[10px] uppercase tracking-widest">Est. Wait</span>
+                          <span className="font-data-mono text-on-surface font-bold">{fac.waitTime}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+            </div>
 
             {/* Live Fan Reports feed */}
             <section className="col-span-12 lg:col-span-5 flex flex-col h-full overflow-hidden">
@@ -458,6 +583,56 @@ export const OpsMode: React.FC<OpsModeProps> = ({ onNavigateToSettings, onNaviga
                             <div className="mt-xs text-[10px] text-primary font-data-mono uppercase">
                               AI Summary: {report.summary}
                             </div>
+                            
+                            {/* Status Control Buttons */}
+                            <div className="mt-sm pt-xs border-t border-outline-variant/10 flex justify-between items-center gap-sm flex-wrap">
+                              <span className="text-[10px] uppercase font-bold tracking-wider text-on-surface-variant/70">
+                                Status: <strong className={`font-data-mono ${
+                                  report.status === 'resolved' 
+                                    ? 'text-tertiary' 
+                                    : report.status === 'resolving'
+                                      ? 'text-secondary-fixed font-bold'
+                                      : report.status === 'checking'
+                                        ? 'text-primary font-bold'
+                                        : 'text-error'
+                                }`}>{report.status || 'pending'}</strong>
+                              </span>
+                              <div className="flex gap-xs">
+                                <button 
+                                  onClick={() => updateReportStatus(report.id, 'checking')}
+                                  disabled={report.status === 'checking'}
+                                  className={`px-sm py-1 rounded text-[10px] font-label-caps tracking-wider font-bold transition-all cursor-pointer ${
+                                    report.status === 'checking'
+                                      ? 'bg-primary text-on-primary shadow-sm border border-transparent'
+                                      : 'bg-surface-container hover:bg-surface-bright text-on-surface-variant border border-outline-variant/20'
+                                  }`}
+                                >
+                                  Checking
+                                </button>
+                                <button 
+                                  onClick={() => updateReportStatus(report.id, 'resolving')}
+                                  disabled={report.status === 'resolving'}
+                                  className={`px-sm py-1 rounded text-[10px] font-label-caps tracking-wider font-bold transition-all cursor-pointer ${
+                                    report.status === 'resolving'
+                                      ? 'bg-secondary text-on-secondary shadow-sm border border-transparent'
+                                      : 'bg-surface-container hover:bg-surface-bright text-on-surface-variant border border-outline-variant/20'
+                                  }`}
+                                >
+                                  Resolving
+                                </button>
+                                <button 
+                                  onClick={() => updateReportStatus(report.id, 'resolved')}
+                                  disabled={report.status === 'resolved'}
+                                  className={`px-sm py-1 rounded text-[10px] font-label-caps tracking-wider font-bold transition-all cursor-pointer ${
+                                    report.status === 'resolved'
+                                      ? 'bg-tertiary text-on-tertiary shadow-sm border border-transparent'
+                                      : 'bg-surface-container hover:bg-surface-bright text-on-surface-variant border border-outline-variant/20'
+                                  }`}
+                                >
+                                  Solved
+                                </button>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -474,7 +649,7 @@ export const OpsMode: React.FC<OpsModeProps> = ({ onNavigateToSettings, onNaviga
       {/* GATE TELEMETRY SIMULATION DIALOG OVERLAY */}
       {selectedGateSim && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-md z-[200]">
-          <div className="bg-surface-container login-card-blur border border-outline-variant/30 rounded-xl p-lg max-w-sm w-full relative z-[210]">
+          <div className="bg-surface-container login-card-blur border border-outline-variant/30 rounded-xl p-lg w-[90vw] sm:w-[400px] shrink-0 relative z-[210]">
             <h3 className="font-headline-lg-mobile text-lg text-on-surface font-bold uppercase mb-md">
               Simulate Gate Load: {selectedGateSim.name}
             </h3>
@@ -515,6 +690,66 @@ export const OpsMode: React.FC<OpsModeProps> = ({ onNavigateToSettings, onNaviga
                 <button 
                   type="button"
                   onClick={() => setSelectedGateSim(null)}
+                  className="px-lg py-sm border border-outline-variant rounded-lg font-label-caps text-label-caps text-on-surface-variant hover:bg-surface-bright cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit"
+                  className="px-xl py-sm bg-primary text-on-primary font-label-caps text-label-caps rounded-lg hover:scale-95 transition-transform cursor-pointer"
+                >
+                  Update Telemetry
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* FACILITY TELEMETRY SIMULATION DIALOG OVERLAY */}
+      {selectedFacilitySim && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-md z-[200]">
+          <div className="bg-surface-container login-card-blur border border-outline-variant/30 rounded-xl p-lg w-[90vw] sm:w-[400px] shrink-0 relative z-[210]">
+            <h3 className="font-headline-lg-mobile text-lg text-on-surface font-bold uppercase mb-md truncate">
+              Simulate Facility Load: {selectedFacilitySim.name}
+            </h3>
+            
+            <form onSubmit={handleFacilitySimSubmit} className="space-y-md">
+              {/* Occupancy Slider */}
+              <div className="space-y-xs">
+                <div className="flex justify-between text-xs font-data-mono text-on-surface-variant">
+                  <span>Occupancy</span>
+                  <span className="text-primary font-bold">{simFacilityOccupancy}%</span>
+                </div>
+                <input 
+                  type="range" 
+                  min="0" 
+                  max="100" 
+                  value={simFacilityOccupancy}
+                  onChange={(e) => setSimFacilityOccupancy(Number(e.target.value))}
+                  className="w-full accent-primary h-2 bg-surface-dim rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
+
+              {/* Wait Time Text Input */}
+              <div className="space-y-xs">
+                <label className="font-label-caps text-label-caps text-on-surface-variant" htmlFor="sim_fac_wait">Wait Time (formatted string)</label>
+                <input 
+                  type="text" 
+                  id="sim_fac_wait"
+                  value={simFacilityWaitTime}
+                  onChange={(e) => setSimFacilityWaitTime(e.target.value)}
+                  placeholder="Ex: 14m 20s"
+                  className="w-full bg-surface-dim border border-outline-variant rounded-lg p-md text-on-surface text-sm focus:ring-2 focus:ring-primary outline-none"
+                  required
+                />
+              </div>
+
+              {/* Action Buttons */}
+              <div className="pt-md border-t border-outline-variant/20 flex gap-sm justify-end">
+                <button 
+                  type="button"
+                  onClick={() => setSelectedFacilitySim(null)}
                   className="px-lg py-sm border border-outline-variant rounded-lg font-label-caps text-label-caps text-on-surface-variant hover:bg-surface-bright cursor-pointer"
                 >
                   Cancel

@@ -38,7 +38,7 @@ export interface FanReport {
   timestamp: number;
   severity: 'low' | 'medium' | 'high' | 'critical';
   summary: string;
-  status: 'pending' | 'resolved' | 'in-progress';
+  status: 'pending' | 'checking' | 'resolving' | 'resolved';
 }
 
 export interface BroadcastMessage {
@@ -136,7 +136,9 @@ const mockListeners: { [key: string]: Set<ListenerCallback> } = {
   reports: new Set(),
   broadcasts: new Set(),
   gates: new Set(),
-  auth: new Set()
+  auth: new Set(),
+  brief: new Set(),
+  facilities: new Set()
 };
 
 // Handle incoming synchronization messages from other tabs
@@ -155,11 +157,18 @@ if (syncChannel) {
       mockGates = payload;
       saveLocalData('setu_gates', mockGates);
       mockListeners.gates.forEach(cb => cb([...mockGates]));
+    } else if (type === 'SYNC_BRIEF') {
+      saveLocalData('setu_latest_brief', payload);
+      mockListeners.brief.forEach(cb => cb([...payload]));
+    } else if (type === 'SYNC_FACILITIES') {
+      mockFacilities = payload;
+      saveLocalData('setu_facilities', mockFacilities);
+      mockListeners.facilities.forEach(cb => cb([...mockFacilities]));
     }
   };
 }
 
-const triggerSync = (type: 'SYNC_REPORTS' | 'SYNC_BROADCASTS' | 'SYNC_GATES', payload: any) => {
+const triggerSync = (type: 'SYNC_REPORTS' | 'SYNC_BROADCASTS' | 'SYNC_GATES' | 'SYNC_BRIEF' | 'SYNC_FACILITIES', payload: any) => {
   if (syncChannel) {
     syncChannel.postMessage({ type, payload });
   }
@@ -320,9 +329,20 @@ export const submitReport = async (reportData: Omit<FanReport, 'id' | 'timestamp
   };
 
   if (isFirebaseConfigured && db) {
-    await addDoc(collection(db, 'reports'), newReport);
+    await setDoc(doc(db, 'reports', newReport.id), newReport);
   } else {
     mockReports.unshift(newReport); // Newest first
+    saveLocalData('setu_reports', mockReports);
+    triggerSync('SYNC_REPORTS', mockReports);
+    mockListeners.reports.forEach(cb => cb([...mockReports]));
+  }
+};
+
+export const updateReportStatusInDB = async (reportId: string, status: 'pending' | 'checking' | 'resolving' | 'resolved'): Promise<void> => {
+  if (isFirebaseConfigured && db) {
+    await updateDoc(doc(db, 'reports', reportId), { status });
+  } else {
+    mockReports = mockReports.map(r => r.id === reportId ? { ...r, status } : r);
     saveLocalData('setu_reports', mockReports);
     triggerSync('SYNC_REPORTS', mockReports);
     mockListeners.reports.forEach(cb => cb([...mockReports]));
@@ -335,7 +355,10 @@ export const subscribeToReports = (callback: (reports: FanReport[]) => void) => 
     return onSnapshot(q, (snapshot) => {
       const reportsList: FanReport[] = [];
       snapshot.forEach((doc) => {
-        reportsList.push(doc.data() as FanReport);
+        reportsList.push({
+          ...(doc.data() as FanReport),
+          id: doc.id
+        });
       });
       callback(reportsList);
     });
@@ -401,7 +424,18 @@ export const updateGateStatusInDB = async (gateId: string, occupancy: number, wa
 
 export const subscribeToGates = (callback: (gates: GateStatus[]) => void) => {
   if (isFirebaseConfigured && db) {
-    return onSnapshot(collection(db, 'gates'), (snapshot) => {
+    return onSnapshot(collection(db, 'gates'), async (snapshot) => {
+      if (snapshot.empty) {
+        console.log("Firestore 'gates' collection is empty. Auto-seeding default gate configurations...");
+        try {
+          for (const gate of defaultGates) {
+            await setDoc(doc(db, 'gates', gate.id), gate);
+          }
+        } catch (err) {
+          console.error("Failed to seed default gates:", err);
+        }
+        return;
+      }
       const gatesList: GateStatus[] = [];
       snapshot.forEach((doc) => {
         gatesList.push(doc.data() as GateStatus);
@@ -414,6 +448,124 @@ export const subscribeToGates = (callback: (gates: GateStatus[]) => void) => {
     callback([...mockGates]);
     return () => {
       mockListeners.gates.delete(callback);
+    };
+  }
+};
+
+// 5. GenAI Situation Brief Telemetry Sync
+export interface SituationAction {
+  title: string;
+  description: string;
+  type: string;
+}
+
+const defaultBriefActions: SituationAction[] = [
+  {
+    title: "CRITICAL ACTION REQUIRED",
+    description: "Reroute incoming fans away from Gate A to Gate B. Queue density at Gate A is exceeding safety threshold (92%).",
+    type: "critical"
+  },
+  {
+    title: "MAINTENANCE DISPATCH",
+    description: "Dispatch technician to Section 114 to repair lighting array failure reported by visual AI triage.",
+    type: "warning"
+  }
+];
+
+export const saveLatestBrief = async (actions: SituationAction[]): Promise<void> => {
+  if (isFirebaseConfigured && db) {
+    await setDoc(doc(db, 'briefs', 'latest'), { actions, timestamp: Date.now() });
+  } else {
+    saveLocalData('setu_latest_brief', actions);
+    triggerSync('SYNC_BRIEF', actions);
+    mockListeners.brief.forEach(cb => cb([...actions]));
+  }
+};
+
+export const subscribeToLatestBrief = (callback: (actions: SituationAction[]) => void) => {
+  if (isFirebaseConfigured && db) {
+    return onSnapshot(doc(db, 'briefs', 'latest'), async (snapshot) => {
+      if (!snapshot.exists()) {
+        console.log("Firestore 'briefs/latest' doc is empty. Auto-seeding initial situation brief...");
+        try {
+          await setDoc(doc(db, 'briefs', 'latest'), { actions: defaultBriefActions, timestamp: Date.now() });
+        } catch (err) {
+          console.error("Failed to seed default situation brief:", err);
+        }
+        return;
+      }
+      callback(snapshot.data().actions as SituationAction[]);
+    });
+  } else {
+    mockListeners.brief.add(callback);
+    const localBrief = getLocalData('setu_latest_brief', defaultBriefActions);
+    callback(localBrief);
+    return () => {
+      mockListeners.brief.delete(callback);
+    };
+  }
+};
+
+// 6. Facilities Telemetry
+export interface FacilityStatus {
+  id: string;
+  name: string;
+  type: 'restaurant' | 'merch' | 'restroom';
+  occupancy: number;
+  waitTime: string;
+  status: 'clear' | 'moderate' | 'busy' | 'dense';
+}
+
+const defaultFacilities: FacilityStatus[] = [
+  { id: 'lone-star-grill', name: 'Lone Star Grill (BBQ)', type: 'restaurant', occupancy: 75, waitTime: '12 mins', status: 'busy' },
+  { id: 'verde-cantina', name: 'Verde Cantina (Tex-Mex)', type: 'restaurant', occupancy: 40, waitTime: '5 mins', status: 'moderate' },
+  { id: 'green-bowl', name: 'The Green Bowl (Healthy)', type: 'restaurant', occupancy: 20, waitTime: '2 mins', status: 'clear' },
+  { id: 'merch-store', name: 'Munchies & Merch', type: 'merch', occupancy: 45, waitTime: '6 mins', status: 'moderate' },
+  { id: 'restrooms-114', name: 'Restrooms (Sec 114)', type: 'restroom', occupancy: 90, waitTime: '18 mins', status: 'dense' },
+  { id: 'restrooms-130', name: 'Restrooms (Sec 130)', type: 'restroom', occupancy: 30, waitTime: '3 mins', status: 'clear' },
+  { id: 'restrooms-205', name: 'Restrooms (Sec 205)', type: 'restroom', occupancy: 55, waitTime: '7 mins', status: 'moderate' },
+  { id: 'restrooms-312', name: 'Restrooms (Sec 312)', type: 'restroom', occupancy: 15, waitTime: '1 min', status: 'clear' }
+];
+
+let mockFacilities: FacilityStatus[] = getLocalData('setu_facilities', defaultFacilities);
+
+export const updateFacilityStatusInDB = async (facilityId: string, occupancy: number, waitTime: string, status: 'clear' | 'moderate' | 'busy' | 'dense'): Promise<void> => {
+  if (isFirebaseConfigured && db) {
+    const facilityDoc = doc(db, 'facilities', facilityId);
+    await updateDoc(facilityDoc, { occupancy, waitTime, status });
+  } else {
+    mockFacilities = mockFacilities.map(f => f.id === facilityId ? { ...f, occupancy, waitTime, status } : f);
+    saveLocalData('setu_facilities', mockFacilities);
+    triggerSync('SYNC_FACILITIES', mockFacilities);
+    mockListeners.facilities.forEach(cb => cb([...mockFacilities]));
+  }
+};
+
+export const subscribeToFacilities = (callback: (facilities: FacilityStatus[]) => void) => {
+  if (isFirebaseConfigured && db) {
+    return onSnapshot(collection(db, 'facilities'), async (snapshot) => {
+      if (snapshot.empty) {
+        console.log("Firestore 'facilities' collection is empty. Auto-seeding default facilities telemetry...");
+        try {
+          for (const facility of defaultFacilities) {
+            await setDoc(doc(db, 'facilities', facility.id), facility);
+          }
+        } catch (err) {
+          console.error("Failed to seed default facilities:", err);
+        }
+        return;
+      }
+      const facilitiesList: FacilityStatus[] = [];
+      snapshot.forEach((doc) => {
+        facilitiesList.push(doc.data() as FacilityStatus);
+      });
+      callback(facilitiesList);
+    });
+  } else {
+    mockListeners.facilities.add(callback);
+    callback([...mockFacilities]);
+    return () => {
+      mockListeners.facilities.delete(callback);
     };
   }
 };

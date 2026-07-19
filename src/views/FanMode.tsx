@@ -28,7 +28,7 @@ const WC_LANGUAGES = [
 
 export const FanMode: React.FC<FanModeProps> = ({ onNavigateToSettings, onNavigateToOps }) => {
   const { user, logout } = useAuth();
-  const { broadcasts, gates, addReport } = useLiveData();
+  const { broadcasts, gates, facilities, addReport } = useLiveData();
 
   // Language state
   const [selectedLanguage, setSelectedLanguage] = useState(WC_LANGUAGES[0]);
@@ -379,6 +379,77 @@ export const FanMode: React.FC<FanModeProps> = ({ onNavigateToSettings, onNaviga
             </button>
           </div>
 
+          {/* Live Gate Telemetry Card */}
+          <div className="bg-surface-container-low rounded-xl border border-outline-variant/20 p-md flex flex-col gap-sm">
+            <div className="flex justify-between items-center mb-xs">
+              <h3 className="font-label-caps text-label-caps text-on-surface-variant flex items-center gap-sm font-bold">
+                <span className="material-symbols-outlined text-lg text-primary">sensors</span>
+                LIVE GATE TELEMETRY
+              </h3>
+              <div className="flex items-center gap-xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+                <span className="text-[10px] font-data-mono text-primary font-bold uppercase tracking-wider">LIVE SYNC</span>
+              </div>
+            </div>
+            <p className="text-xs text-on-surface-variant opacity-80 leading-relaxed mb-xs">
+              Real-time gate occupancy and estimated queue wait times for entering or exiting the stadium.
+            </p>
+            <div className="space-y-sm">
+              {gates.length === 0 ? (
+                <div className="py-md text-center text-xs text-on-surface-variant font-data-mono uppercase">
+                  Loading telemetry...
+                </div>
+              ) : (
+                gates.map((gate) => {
+                  const isCritical = gate.status === 'critical';
+                  const isSteady = gate.status === 'steady';
+                  const isOptimal = gate.status === 'optimal';
+                  
+                  const progressColor = isCritical 
+                    ? 'bg-error shadow-[0_0_8px_rgba(255,180,171,0.4)]' 
+                    : isSteady
+                      ? 'bg-secondary'
+                      : isOptimal
+                        ? 'bg-primary'
+                        : 'bg-tertiary';
+
+                  const statusTextColor = isCritical 
+                    ? 'text-error' 
+                    : isSteady
+                      ? 'text-secondary-fixed'
+                      : isOptimal
+                        ? 'text-primary'
+                        : 'text-tertiary';
+
+                  return (
+                    <div key={gate.id} className="bg-surface-container/50 border border-outline-variant/10 rounded-lg p-sm flex flex-col gap-xs hover:bg-surface-container transition-all">
+                      <div className="flex justify-between items-center">
+                        <span className="font-bold text-xs text-on-surface">{gate.name}</span>
+                        <div className="flex items-center gap-sm">
+                          <span className={`text-[10px] font-bold uppercase ${statusTextColor}`}>
+                            {gate.status}
+                          </span>
+                          <span className="font-data-mono text-[11px] text-on-surface font-semibold">{gate.waitTime}</span>
+                        </div>
+                      </div>
+                      
+                      {/* Concise Graph Bar */}
+                      <div className="flex items-center gap-sm">
+                        <div className="flex-grow h-2 bg-surface-container-highest rounded-full overflow-hidden p-0.5">
+                          <div 
+                            className={`h-full rounded-full transition-all duration-700 ${progressColor}`}
+                            style={{ width: `${gate.occupancy}%` }}
+                          ></div>
+                        </div>
+                        <span className="font-data-mono text-[10px] text-on-surface-variant w-8 text-right shrink-0">{gate.occupancy}%</span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
           {/* Ambient Security/Crowd Feed */}
           <div className="relative overflow-hidden rounded-xl border border-outline-variant/20 aspect-video shadow-md">
             <div 
@@ -502,61 +573,127 @@ export const FanMode: React.FC<FanModeProps> = ({ onNavigateToSettings, onNaviga
             </div>
           </div>
 
-          {/* Bento grids for wait time dynamics */}
-          <div className="grid grid-cols-12 gap-lg">
-            <div className="col-span-12 md:col-span-4 bg-surface-container rounded-xl p-md border border-outline-variant/20 shadow-sm">
-              <div className="flex justify-between items-start mb-md">
-                <h4 className="font-label-caps text-label-caps text-on-surface-variant">BBQ & FOOD COURT</h4>
-                <span className="font-data-mono text-[11px] text-primary font-bold">BUSY</span>
+          {/* Dynamic wait time dynamics grouped by type */}
+          <div className="space-y-lg col-span-12">
+            
+            {/* Dining & Stores */}
+            <div className="space-y-md">
+              <h3 className="font-label-caps text-xs text-on-surface-variant flex items-center gap-sm uppercase tracking-[0.15em] font-bold px-1">
+                <span className="material-symbols-outlined text-lg text-primary">restaurant</span>
+                Stadium Dining & Stores
+              </h3>
+              <div className="grid grid-cols-12 gap-md md:gap-lg">
+                {facilities.length === 0 ? (
+                  <div className="col-span-12 py-md text-center text-xs text-on-surface-variant font-data-mono uppercase">
+                    Loading telemetry...
+                  </div>
+                ) : (
+                  facilities.filter(f => f.type === 'restaurant' || f.type === 'merch').map((fac) => {
+                    const isDense = fac.status === 'dense' || fac.status === 'busy';
+                    const isModerate = fac.status === 'moderate';
+                    
+                    const statusColor = isDense 
+                      ? 'text-error' 
+                      : isModerate 
+                        ? 'text-secondary' 
+                        : 'text-tertiary';
+
+                    const progressClass = isDense ? 'warning' : 'active';
+                    const totalSegments = 8;
+                    const activeSegments = Math.round((fac.occupancy / 100) * totalSegments);
+
+                    return (
+                      <div key={fac.id} className="col-span-12 md:col-span-3 bg-surface-container rounded-xl p-md border border-outline-variant/20 shadow-sm hover:border-primary/30 transition-all flex flex-col justify-between min-h-[140px]">
+                        <div>
+                          <div className="flex justify-between items-start mb-md">
+                            <h4 className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider font-bold truncate pr-xs">{fac.name}</h4>
+                            <span className={`font-data-mono text-[10px] font-bold uppercase ${statusColor}`}>{fac.status}</span>
+                          </div>
+                          <div className="flex gap-1 mb-sm">
+                            {Array.from({ length: totalSegments }).map((_, idx) => {
+                              const isActive = idx < activeSegments;
+                              return (
+                                <div 
+                                  key={idx} 
+                                  className={`segmented-progress-item ${
+                                    isActive 
+                                      ? (progressClass === 'warning' ? 'warning' : 'active') 
+                                      : ''
+                                  }`}
+                                ></div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <p className="text-xs text-on-surface-variant mt-sm">
+                          Est. wait: <span className="text-on-surface font-bold">{fac.waitTime}</span>
+                        </p>
+                      </div>
+                    );
+                  })
+                )}
               </div>
-              <div className="flex gap-1 mb-sm">
-                <div className="segmented-progress-item active"></div>
-                <div className="segmented-progress-item active"></div>
-                <div className="segmented-progress-item active"></div>
-                <div className="segmented-progress-item active"></div>
-                <div className="segmented-progress-item active"></div>
-                <div className="segmented-progress-item active"></div>
-                <div className="segmented-progress-item"></div>
-                <div className="segmented-progress-item"></div>
-              </div>
-              <p className="text-xs text-on-surface-variant">Est. wait: <span className="text-on-surface font-bold">12 mins</span></p>
             </div>
 
-            <div className="col-span-12 md:col-span-4 bg-surface-container rounded-xl p-md border border-outline-variant/20 shadow-sm">
-              <div className="flex justify-between items-start mb-md">
-                <h4 className="font-label-caps text-label-caps text-on-surface-variant">MERCH STORES</h4>
-                <span className="font-data-mono text-[11px] text-secondary font-bold">MODERATE</span>
+            {/* Restrooms */}
+            <div className="space-y-md">
+              <h3 className="font-label-caps text-xs text-on-surface-variant flex items-center gap-sm uppercase tracking-[0.15em] font-bold px-1">
+                <span className="material-symbols-outlined text-lg text-primary">wc</span>
+                Restroom Crowd Telemetry
+              </h3>
+              <div className="grid grid-cols-12 gap-md md:gap-lg">
+                {facilities.length === 0 ? (
+                  <div className="col-span-12 py-md text-center text-xs text-on-surface-variant font-data-mono uppercase">
+                    Loading telemetry...
+                  </div>
+                ) : (
+                  facilities.filter(f => f.type === 'restroom').map((fac) => {
+                    const isDense = fac.status === 'dense' || fac.status === 'busy';
+                    const isModerate = fac.status === 'moderate';
+                    
+                    const statusColor = isDense 
+                      ? 'text-error' 
+                      : isModerate 
+                        ? 'text-secondary' 
+                        : 'text-tertiary';
+
+                    const progressClass = isDense ? 'warning' : 'active';
+                    const totalSegments = 8;
+                    const activeSegments = Math.round((fac.occupancy / 100) * totalSegments);
+
+                    return (
+                      <div key={fac.id} className="col-span-12 md:col-span-3 bg-surface-container rounded-xl p-md border border-outline-variant/20 shadow-sm hover:border-primary/30 transition-all flex flex-col justify-between min-h-[140px]">
+                        <div>
+                          <div className="flex justify-between items-start mb-md">
+                            <h4 className="font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider font-bold truncate pr-xs">{fac.name}</h4>
+                            <span className={`font-data-mono text-[10px] font-bold uppercase ${statusColor}`}>{fac.status}</span>
+                          </div>
+                          <div className="flex gap-1 mb-sm">
+                            {Array.from({ length: totalSegments }).map((_, idx) => {
+                              const isActive = idx < activeSegments;
+                              return (
+                                <div 
+                                  key={idx} 
+                                  className={`segmented-progress-item ${
+                                    isActive 
+                                      ? (progressClass === 'warning' ? 'warning' : 'active') 
+                                      : ''
+                                  }`}
+                                ></div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <p className="text-xs text-on-surface-variant mt-sm">
+                          Est. wait: <span className="text-on-surface font-bold">{fac.waitTime}</span>
+                        </p>
+                      </div>
+                    );
+                  })
+                )}
               </div>
-              <div className="flex gap-1 mb-sm">
-                <div className="segmented-progress-item active"></div>
-                <div className="segmented-progress-item active"></div>
-                <div className="segmented-progress-item active"></div>
-                <div className="segmented-progress-item"></div>
-                <div className="segmented-progress-item"></div>
-                <div className="segmented-progress-item"></div>
-                <div className="segmented-progress-item"></div>
-                <div className="segmented-progress-item"></div>
-              </div>
-              <p className="text-xs text-on-surface-variant">Est. wait: <span className="text-on-surface font-bold">5 mins</span></p>
             </div>
 
-            <div className="col-span-12 md:col-span-4 bg-surface-container rounded-xl p-md border border-outline-variant/20 shadow-sm">
-              <div className="flex justify-between items-start mb-md">
-                <h4 className="font-label-caps text-label-caps text-on-surface-variant">RESTROOMS (SEC 114)</h4>
-                <span className="font-data-mono text-[11px] text-error font-bold">DENSE</span>
-              </div>
-              <div className="flex gap-1 mb-sm">
-                <div className="segmented-progress-item warning"></div>
-                <div className="segmented-progress-item warning"></div>
-                <div className="segmented-progress-item warning"></div>
-                <div className="segmented-progress-item warning"></div>
-                <div className="segmented-progress-item warning"></div>
-                <div className="segmented-progress-item warning"></div>
-                <div className="segmented-progress-item warning"></div>
-                <div className="segmented-progress-item warning"></div>
-              </div>
-              <p className="text-xs text-on-surface-variant">Est. wait: <span className="text-on-surface font-bold">18 mins</span></p>
-            </div>
           </div>
 
           {/* Interactive Map card */}
